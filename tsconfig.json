@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "lib": ["ES2019", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "skipLibCheck": true,
+    "types": ["@figma/plugin-typings", "node"],
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/code.ts",
+    "src/figma/**/*",
+    "src/matcher/**/*",
+    "src/protocol/**/*",
+    "src/ui/**/*",
+    "tests/matchScore.test.ts"
+  ]
+}

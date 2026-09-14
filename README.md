@@ -37,6 +37,8 @@ Or keep rebuilding while editing:
 npm run watch
 ```
 
+For local plugin iteration, keep the watch process running so `dist/` stays hot for Figma reload.
+
 ### Scripts
 
 | Script | What it does |

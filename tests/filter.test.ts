@@ -10,6 +10,10 @@ const v = (
   collectionName: 'component',
   isRemote: false,
   boundToSelection: false,
+  modes: [],
+  valuesByMode: {},
+  resolvedValues: {},
+  colorHex: null,
   ...partial
 });
 

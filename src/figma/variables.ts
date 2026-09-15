@@ -17,10 +17,72 @@ const isAliasValue = (value: unknown): value is VariableAlias =>
       typeof (value as { id?: unknown }).id === 'string'
   );
 
+const isRgba = (value: unknown): value is RGBA =>
+  Boolean(
+    value &&
+      typeof value === 'object' &&
+      'r' in value &&
+      'g' in value &&
+      'b' in value &&
+      typeof (value as RGBA).r === 'number'
+  );
+
+const byteToHex = (value: number): string => {
+  const clamped = Math.max(0, Math.min(255, Math.round(value)));
+  return clamped.toString(16).padStart(2, '0');
+};
+
+export const rgbaToDisplayHex = (rgba: RGBA): string => {
+  const r = byteToHex(rgba.r * 255);
+  const g = byteToHex(rgba.g * 255);
+  const b = byteToHex(rgba.b * 255);
+  const a = rgba.a !== undefined && rgba.a < 1 ? byteToHex(rgba.a * 255) : '';
+  return a ? `#${r}${g}${b}${a}`.toUpperCase() : `#${r}${g}${b}`.toUpperCase();
+};
+
+export const formatModeValueDisplay = (
+  value: unknown,
+  resolvedType: VariableResolvedType
+): string | null => {
+  if (value === undefined) return null;
+  if (isAliasValue(value)) return null;
+  switch (resolvedType) {
+    case 'COLOR':
+      return isRgba(value) ? rgbaToDisplayHex(value) : null;
+    case 'FLOAT':
+      return typeof value === 'number' && Number.isFinite(value) ? String(value) : null;
+    case 'STRING':
+      return typeof value === 'string' ? value : null;
+    case 'BOOLEAN':
+      return typeof value === 'boolean' ? (value ? 'true' : 'false') : null;
+    default:
+      return null;
+  }
+};
+
 const modeValueInfo = (value: unknown): ModeValueInfo => {
   if (value === undefined) return { kind: 'EMPTY' };
   if (isAliasValue(value)) return { kind: 'ALIAS', aliasId: value.id };
   return { kind: 'LITERAL' };
+};
+
+const buildResolvedSnapshot = (
+  variable: Variable,
+  collection: VariableCollection
+): { resolvedValues: Record<string, string>; colorHex: string | null } => {
+  const resolvedValues: Record<string, string> = {};
+  let colorHex: string | null = null;
+  for (const mode of collection.modes) {
+    const raw = variable.valuesByMode[mode.modeId];
+    const display = formatModeValueDisplay(raw, variable.resolvedType as VariableResolvedType);
+    if (display !== null) {
+      resolvedValues[mode.modeId] = display;
+      if (colorHex === null && variable.resolvedType === 'COLOR') {
+        colorHex = display;
+      }
+    }
+  }
+  return { resolvedValues, colorHex };
 };
 
 const toInfo = (
@@ -32,6 +94,7 @@ const toInfo = (
   for (const mode of collection.modes) {
     valuesByMode[mode.modeId] = modeValueInfo(variable.valuesByMode[mode.modeId]);
   }
+  const { resolvedValues, colorHex } = buildResolvedSnapshot(variable, collection);
   return {
     id: variable.id,
     name: variable.name,
@@ -41,7 +104,9 @@ const toInfo = (
     isRemote: variable.remote,
     boundToSelection: boundIds.has(variable.id),
     modes: collection.modes.map((mode) => ({ id: mode.modeId, name: mode.name })),
-    valuesByMode
+    valuesByMode,
+    resolvedValues,
+    colorHex
   };
 };
 
@@ -87,7 +152,9 @@ export const snapshotLocalVariables = async (
           isRemote: variable.remote,
           boundToSelection: boundIds.has(variable.id),
           modes: [],
-          valuesByMode: {}
+          valuesByMode: {},
+          resolvedValues: {},
+          colorHex: null
         } satisfies VariableInfo;
       }
       return toInfo(variable, collection, boundIds);
@@ -127,9 +194,9 @@ const makeRowResult = (
 });
 
 /**
- * Writes VARIABLE_ALIAS values with mode-name alignment.
+ * Writes VARIABLE_ALIAS values in a mode-agnostic way.
  * - Source/target types must match
- * - Mode pairing is by mode name
+ * - Every source mode points to the chosen target variable id
  * - Existing same alias is skipped
  * - Literal overwrite is off by default (opt-in)
  */
@@ -182,30 +249,20 @@ export const applyAliases = async (input: ApplyAliasesInput): Promise<ApplyAlias
     }
 
     const sourceCollection = collectionById.get(source.variableCollectionId);
-    const targetCollection = collectionById.get(target.variableCollectionId);
-    if (!sourceCollection || !targetCollection) {
-      row.failedModes.push({ modeName: '*', error: '无法读取变量集合信息' });
-      summary.modesFailed += 1;
+    const sourceModes =
+      sourceCollection?.modes.map((mode) => ({ modeId: mode.modeId, modeName: mode.name })) ??
+      Object.keys(source.valuesByMode).map((modeId) => ({ modeId, modeName: modeId }));
+    if (sourceModes.length === 0) {
+      row.skippedModes.push({ modeName: '*', reason: 'source 没有可写入 mode' });
+      summary.modesSkipped += 1;
       continue;
     }
 
-    const targetModesByName = new Map(
-      targetCollection.modes.map((mode) => [mode.name, mode.modeId])
-    );
-    for (const sourceMode of sourceCollection.modes) {
-      if (!targetModesByName.has(sourceMode.name)) {
-        row.skippedModes.push({
-          modeName: sourceMode.name,
-          reason: '目标集合不存在同名 mode'
-        });
-        summary.modesSkipped += 1;
-        continue;
-      }
-
+    for (const sourceMode of sourceModes) {
       const currentValue = source.valuesByMode[sourceMode.modeId];
       if (isAliasValue(currentValue) && currentValue.id === target.id) {
         row.skippedModes.push({
-          modeName: sourceMode.name,
+          modeName: sourceMode.modeName,
           reason: '已是同一别名'
         });
         summary.modesSkipped += 1;
@@ -215,7 +272,7 @@ export const applyAliases = async (input: ApplyAliasesInput): Promise<ApplyAlias
       const isLiteral = currentValue !== undefined && !isAliasValue(currentValue);
       if (isLiteral && !input.overwriteLiteral) {
         row.skippedModes.push({
-          modeName: sourceMode.name,
+          modeName: sourceMode.modeName,
           reason: 'literal 值未覆盖（overwrite-literal=off）'
         });
         summary.modesSkipped += 1;
@@ -223,7 +280,7 @@ export const applyAliases = async (input: ApplyAliasesInput): Promise<ApplyAlias
       }
 
       if (input.dryRun) {
-        row.wouldApplyModes.push(sourceMode.name);
+        row.wouldApplyModes.push(sourceMode.modeName);
         summary.modesWouldApply += 1;
         continue;
       }
@@ -233,11 +290,11 @@ export const applyAliases = async (input: ApplyAliasesInput): Promise<ApplyAlias
           type: 'VARIABLE_ALIAS',
           id: target.id
         });
-        row.appliedModes.push(sourceMode.name);
+        row.appliedModes.push(sourceMode.modeName);
         summary.modesApplied += 1;
       } catch (error) {
         row.failedModes.push({
-          modeName: sourceMode.name,
+          modeName: sourceMode.modeName,
           error: error instanceof Error ? error.message : String(error)
         });
         summary.modesFailed += 1;

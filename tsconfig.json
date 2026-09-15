@@ -18,6 +18,8 @@
     "src/matcher/**/*",
     "src/protocol/**/*",
     "src/ui/**/*",
-    "tests/matchScore.test.ts"
+    "tests/matchScore.test.ts",
+    "tests/applyAliases.test.ts",
+    "tests/writePreview.test.ts"
   ]
 }

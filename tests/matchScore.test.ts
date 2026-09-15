@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildMatchPreview, longestCommonTokenSuffix } from '../src/matcher/matchScore';
+import {
+  buildMatchPreview,
+  buildMatchPreviewGrouped,
+  longestCommonTokenSuffix
+} from '../src/matcher/matchScore';
 import type { VariableInfo, VariableResolvedType } from '../src/protocol/messages';
 
 const variable = (input: {
@@ -9,6 +13,9 @@ const variable = (input: {
   collectionId?: string;
   collectionName?: string;
   boundToSelection?: boolean;
+  resolvedValues?: Record<string, string>;
+  colorHex?: string | null;
+  modes?: Array<{ id: string; name: string }>;
 }): VariableInfo => ({
   id: input.id,
   name: input.name,
@@ -17,8 +24,10 @@ const variable = (input: {
   collectionName: input.collectionName ?? input.collectionId ?? 'source',
   isRemote: false,
   boundToSelection: input.boundToSelection ?? false,
-  modes: [],
-  valuesByMode: {}
+  modes: input.modes ?? [],
+  valuesByMode: {},
+  resolvedValues: input.resolvedValues ?? {},
+  colorHex: input.colorHex ?? null
 });
 
 describe('longestCommonTokenSuffix', () => {
@@ -86,17 +95,130 @@ describe('buildMatchPreview', () => {
   });
 
   it('uses confidence threshold for auto-check defaults', () => {
-    const rows = buildMatchPreview({
+    const [strictRow] = buildMatchPreview({
       sources: [variable({ id: 's1', name: 'button/primary-background-default' })],
-      targets: [variable({ id: 't1', name: 'control/theme-primary-background-default', collectionId: 'target' })],
+      targets: [variable({ id: 't1', name: 'control/theme-primary-border-default', collectionId: 'target' })],
       confidenceThreshold: 0.95
     });
-    expect(rows[0]?.autoChecked).toBe(false);
-    const relaxed = buildMatchPreview({
+    expect(strictRow?.autoChecked).toBe(false);
+
+    const [relaxedLow] = buildMatchPreview({
       sources: [variable({ id: 's1', name: 'button/primary-background-default' })],
-      targets: [variable({ id: 't1', name: 'control/theme-primary-background-default', collectionId: 'target' })],
-      confidenceThreshold: 0.55
+      targets: [variable({ id: 't1', name: 'control/theme-primary-border-default', collectionId: 'target' })],
+      confidenceThreshold: 0.2
     });
-    expect(relaxed[0]?.autoChecked).toBe(true);
+    expect(relaxedLow?.autoChecked).toBe(false);
+
+    const [high] = buildMatchPreview({
+      sources: [variable({ id: 's2', name: 'button/primary-background-hover' })],
+      targets: [variable({ id: 't2', name: 'control/theme-primary-background-hover', collectionId: 'target' })],
+      confidenceThreshold: 0.85
+    });
+    expect(high?.recommendedConfidence).toBe('high');
+    expect(high?.autoChecked).toBe(true);
+  });
+
+  it('ranks canonical button->control family #1 with noisy alternatives', () => {
+    const rows = buildMatchPreview({
+      sources: [
+        variable({ id: 's-d', name: 'button/primary-background-default', collectionId: 'componentToken' }),
+        variable({ id: 's-h', name: 'button/primary-background-hover', collectionId: 'componentToken' }),
+        variable({ id: 's-a', name: 'button/primary-background-active', collectionId: 'componentToken' })
+      ],
+      targets: [
+        variable({ id: 't-d', name: 'control/theme-primary-background-default', collectionId: 'colorSystem' }),
+        variable({ id: 't-h', name: 'control/theme-primary-background-hover', collectionId: 'colorSystem' }),
+        variable({ id: 't-a', name: 'control/theme-primary-background-active', collectionId: 'colorSystem' }),
+        variable({ id: 'n-d', name: 'sys/theme-primary-background-default', collectionId: 'noise' }),
+        variable({ id: 'n-h', name: 'sys/theme-primary-background-hover', collectionId: 'noise' }),
+        variable({ id: 'n-a', name: 'sys/theme-primary-background-active', collectionId: 'noise' }),
+        variable({ id: 'w-d', name: 'control/theme-primary-background-hover', collectionId: 'wrong-state' }),
+        variable({ id: 'w-h', name: 'control/theme-primary-background-active', collectionId: 'wrong-state' }),
+        variable({ id: 'w-a', name: 'control/theme-primary-background-default', collectionId: 'wrong-state' })
+      ],
+      confidenceThreshold: 0.85,
+      maxCandidates: 20
+    });
+    const byId = new Map(rows.map((row) => [row.sourceId, row]));
+    expect(byId.get('s-d')?.recommendedTargetId).toBe('t-d');
+    expect(byId.get('s-h')?.recommendedTargetId).toBe('t-h');
+    expect(byId.get('s-a')?.recommendedTargetId).toBe('t-a');
+  });
+
+  it('penalizes state mismatches even when suffix is similar', () => {
+    const [row] = buildMatchPreview({
+      sources: [variable({ id: 's-h', name: 'button/primary-background-hover' })],
+      targets: [
+        variable({ id: 'good', name: 'control/theme-primary-background-hover', collectionId: 'colorSystem' }),
+        variable({ id: 'bad', name: 'control/theme-primary-background-default', collectionId: 'colorSystem' })
+      ],
+      confidenceThreshold: 0.85,
+      maxCandidates: 20
+    });
+    expect(row?.recommendedTargetId).toBe('good');
+    const bad = row?.candidates.find((candidate) => candidate.targetId === 'bad');
+    expect((bad?.score ?? 0) < 0.4).toBe(true);
+  });
+
+  it('boosts ranking when COLOR hex values match despite weak names', () => {
+    const rows = buildMatchPreview({
+      sources: [
+        variable({
+          id: 's1',
+          name: 'componentToken/weird-alias-default',
+          resolvedValues: { m1: '#BF2300' },
+          colorHex: '#BF2300',
+          modes: [{ id: 'm1', name: 'default' }]
+        })
+      ],
+      targets: [
+        variable({
+          id: 'weak-name',
+          name: 'totally/unrelated-token-default',
+          collectionId: 'target',
+          resolvedValues: { t1: '#FFFFFF' },
+          colorHex: '#FFFFFF',
+          modes: [{ id: 't1', name: 'default' }]
+        }),
+        variable({
+          id: 'value-hit',
+          name: 'another/unrelated-leaf-default',
+          collectionId: 'target',
+          resolvedValues: { t1: '#BF2300' },
+          colorHex: '#BF2300',
+          modes: [{ id: 't1', name: 'default' }]
+        })
+      ],
+      confidenceThreshold: 0.6,
+      maxCandidates: 5
+    });
+    expect(rows[0]?.recommendedTargetId).toBe('value-hit');
+    const hit = rows[0]?.candidates.find((candidate) => candidate.targetId === 'value-hit');
+    expect(hit?.reasons).toContain('value-match');
+  });
+});
+
+describe('buildMatchPreviewGrouped', () => {
+  it('groups default/hover/active siblings and leaves singletons ungrouped', () => {
+    const grouped = buildMatchPreviewGrouped({
+      sources: [
+        variable({ id: 's-d', name: 'button/primary-background-default' }),
+        variable({ id: 's-h', name: 'button/primary-background-hover' }),
+        variable({ id: 'solo', name: 'input/border-default' })
+      ],
+      targets: [
+        variable({ id: 't-d', name: 'control/theme-primary-background-default', collectionId: 'target' }),
+        variable({ id: 't-h', name: 'control/theme-primary-background-hover', collectionId: 'target' }),
+        variable({ id: 't-border', name: 'control/theme-border-default', collectionId: 'target' })
+      ],
+      confidenceThreshold: 0.6
+    });
+    expect(grouped.families).toHaveLength(1);
+    expect(grouped.families[0]?.rows).toHaveLength(2);
+    expect(grouped.families[0]?.sourceStates).toContain('default');
+    expect(grouped.families[0]?.sourceStates).toContain('hover');
+    expect(grouped.ungrouped).toHaveLength(1);
+    expect(grouped.ungrouped[0]?.sourceId).toBe('solo');
+    expect(grouped.totalSources).toBe(3);
   });
 });

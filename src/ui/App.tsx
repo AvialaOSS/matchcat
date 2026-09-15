@@ -240,7 +240,7 @@ export const App = () => {
   const [sourceCollectionId, setSourceCollectionId] = useState('all');
   const [targetCollectionId, setTargetCollectionId] = useState('all');
   const [resolvedType, setResolvedType] = useState<VariableResolvedType | 'all'>('all');
-  const [confidenceThreshold, setConfidenceThreshold] = useState(0.75);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.85);
   const [confidenceFilter, setConfidenceFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
   const [overwriteLiteral, setOverwriteLiteral] = useState(false);
   const [listHeight, setListHeight] = useState(DEFAULT_LIST_HEIGHT);
@@ -328,7 +328,7 @@ export const App = () => {
         sources: sourcePool,
         targets: targetPool,
         confidenceThreshold,
-        maxCandidates: 8
+        maxCandidates: 20
       }),
     [sourcePool, targetPool, confidenceThreshold]
   );
@@ -338,8 +338,9 @@ export const App = () => {
       const next: Record<string, string> = {};
       for (const row of rows) {
         const current = prev[row.sourceId];
+        const candidateIds = new Set(row.candidates.map((candidate) => candidate.targetId));
         const fallback = row.recommendedTargetId ?? '';
-        const targetId = current || fallback;
+        const targetId = current && candidateIds.has(current) ? current : fallback;
         if (targetId) next[row.sourceId] = targetId;
       }
       return next;
@@ -537,7 +538,7 @@ export const App = () => {
                 step="0.05"
                 onChange={(event) => {
                   const next = Number(event.target.value);
-                  setConfidenceThreshold(Number.isFinite(next) ? clampThreshold(next) : 0.75);
+                  setConfidenceThreshold(Number.isFinite(next) ? clampThreshold(next) : 0.85);
                 }}
                 placeholder="自动勾选阈值"
               />

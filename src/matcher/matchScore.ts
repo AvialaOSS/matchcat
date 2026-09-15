@@ -36,7 +36,7 @@ type ParsedName = {
   raw: string;
   normalizedName: string;
   tokens: string[];
-  tokensNoPrefixNoise: string[];
+  suffixTokens: string[];
   leafTokens: string[];
   leafTokensNoState: string[];
   state: MatchState;
@@ -49,6 +49,8 @@ const PREFIX_NOISE = new Set([
   'color',
   'colors',
   'colorsystem',
+  'control',
+  'controls',
   'semantic',
   'theme',
   'token',
@@ -97,6 +99,9 @@ const dropPrefixNoise = (tokens: string[]): string[] => {
   while (index < tokens.length && PREFIX_NOISE.has(tokens[index])) index += 1;
   return tokens.slice(index);
 };
+
+const dropNoiseAnywhere = (tokens: string[]): string[] =>
+  tokens.filter((token) => !PREFIX_NOISE.has(token));
 
 const detectState = (tokens: string[]): MatchState => {
   for (let index = tokens.length - 1; index >= 0; index -= 1) {
@@ -153,20 +158,21 @@ const parseName = (name: string): ParsedName => {
   const normalizedName = normalizeToken(name.replace(/[\/_-]+/g, '/'));
   const tokens = tokenize(name);
   const tokensNoPrefixNoise = dropPrefixNoise(tokens);
+  const suffixTokens = dropNoiseAnywhere(tokensNoPrefixNoise);
   const leaf = name.split('/').at(-1) ?? name;
   const leafTokens = tokenize(leaf);
-  const leafTokensNoState = stripStateSuffix(leafTokens);
-  const familyTokens = stripStateSuffix(tokensNoPrefixNoise);
+  const leafTokensNoState = stripStateSuffix(dropNoiseAnywhere(dropPrefixNoise(leafTokens)));
+  const familyTokens = stripStateSuffix(suffixTokens);
   return {
     raw: name,
     normalizedName,
     tokens,
-    tokensNoPrefixNoise,
+    suffixTokens,
     leafTokens,
     leafTokensNoState,
     state: detectState(leafTokens),
     familyKey: familyTokens.join('/'),
-    roleTokens: tokenSet(tokensNoPrefixNoise)
+    roleTokens: tokenSet(suffixTokens)
   };
 };
 
@@ -212,19 +218,24 @@ const buildCandidate = (
   );
   const leafScore = leafSuffix / leafBase;
 
-  const fullBase = Math.max(sourceParsed.tokensNoPrefixNoise.length, targetParsed.tokensNoPrefixNoise.length, 1);
+  const fullBase = Math.max(sourceParsed.suffixTokens.length, targetParsed.suffixTokens.length, 1);
   const fullSuffix = longestCommonTokenSuffix(
-    sourceParsed.tokensNoPrefixNoise,
-    targetParsed.tokensNoPrefixNoise
+    sourceParsed.suffixTokens,
+    targetParsed.suffixTokens
   );
   const suffixScore = fullSuffix / fullBase;
   const roleScore = jaccard(sourceParsed.roleTokens, targetParsed.roleTokens);
   const stateScore = scoreState(sourceParsed.state, targetParsed.state);
 
-  let score = leafScore * 0.42 + suffixScore * 0.26 + roleScore * 0.22 + stateScore * 0.1;
+  let score = leafScore * 0.5 + suffixScore * 0.3 + roleScore * 0.05 + stateScore * 0.15;
   if (leafSuffix >= 2) score += 0.05;
   if (fullSuffix >= 3) score += 0.05;
-  if (stateScore === 0) score *= 0.55;
+  if (leafSuffix === 0 && fullSuffix === 0) score *= 0.2;
+  if (sourceParsed.state && targetParsed.state && sourceParsed.state !== targetParsed.state) {
+    score *= 0.2;
+  } else if (stateScore === 0) {
+    score *= 0.55;
+  }
   score = clamp01(score);
 
   const reasons: string[] = [];

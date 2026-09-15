@@ -240,7 +240,6 @@ export const App = () => {
   const [resolvedType, setResolvedType] = useState<VariableResolvedType | 'all'>('all');
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.75);
   const [confidenceFilter, setConfidenceFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
-  const [dryRun, setDryRun] = useState(true);
   const [overwriteLiteral, setOverwriteLiteral] = useState(false);
   const [listHeight, setListHeight] = useState(DEFAULT_LIST_HEIGHT);
   const [selectedTargetBySource, setSelectedTargetBySource] = useState<Record<string, string>>({});
@@ -413,14 +412,17 @@ export const App = () => {
 
   const clearChecked = () => setCheckedSourceIds(new Set());
 
-  const onApply = () => {
-    if (busy) return;
-    const matches = enrichedRows
+  const collectSelectedMatches = () =>
+    enrichedRows
       .filter((row) => checkedSourceIds.has(row.sourceId) && row.selectedTargetId)
       .map((row) => ({
         sourceId: row.sourceId,
         targetId: row.selectedTargetId as string
       }));
+
+  const runApply = (dryRun: boolean) => {
+    if (busy) return;
+    const matches = collectSelectedMatches();
     if (matches.length === 0) {
       setStatus('没有可应用的映射（请先勾选并选择候选）。');
       return;
@@ -591,10 +593,6 @@ export const App = () => {
 
           <div className="mc-field">
             <label className="mc-switch">
-              <Switch size="small" checked={dryRun} onCheckedChange={setDryRun} />
-              <Typography level="caption">Dry-run（仅预演，不写入）</Typography>
-            </label>
-            <label className="mc-switch">
               <Switch size="small" checked={overwriteLiteral} onCheckedChange={setOverwriteLiteral} />
               <Typography level="caption">覆盖 literal（默认关闭）</Typography>
             </label>
@@ -608,8 +606,21 @@ export const App = () => {
             关闭
           </Button>
           <span className="mc-push" />
-          <Button mode="primary" size="regular" disabled={busy || checkedReadyCount === 0} onClick={onApply}>
-            {busy ? '执行中…' : dryRun ? '运行 Dry-run' : '写入 VARIABLE_ALIAS'}
+          <Button
+            mode="outline"
+            size="regular"
+            disabled={busy || checkedReadyCount === 0}
+            onClick={() => runApply(true)}
+          >
+            {busy ? '执行中…' : 'Dry-run 预演'}
+          </Button>
+          <Button
+            mode="primary"
+            size="regular"
+            disabled={busy || checkedReadyCount === 0}
+            onClick={() => runApply(false)}
+          >
+            {busy ? '执行中…' : '应用别名'}
           </Button>
         </Stack>
       </div>

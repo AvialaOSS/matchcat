@@ -25,6 +25,8 @@ import {
 } from '@aviala-design/spiral';
 import { buildMatchPreview, type MatchConfidence } from '../matcher/matchScore';
 import type { MainToUiMessage, SourceScope, VariableInfo, VariableResolvedType } from '../protocol/messages';
+import { toApplyResultsView, type ApplyResultsView } from './apply-results';
+import { buildWritePreview } from './write-preview';
 
 const post = (message: unknown) => parent.postMessage({ pluginMessage: message }, '*');
 
@@ -248,6 +250,7 @@ export const App = () => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [applyResults, setApplyResults] = useState<ApplyResultsView | null>(null);
   const seededRowRef = useRef<Set<string>>(new Set());
   const seededCollectionRef = useRef(false);
 
@@ -271,9 +274,10 @@ export const App = () => {
               `${summary.modesWouldApply} 个 mode 将更新，${summary.modesSkipped} 个跳过`
           );
         } else {
+          const resultView = toApplyResultsView(message.results);
+          setApplyResults(resultView);
           setStatus(
-            `写入完成：${summary.rowsApplied}/${summary.rowsRequested} 行，` +
-              `${summary.modesApplied} 个 mode 已更新，失败 ${summary.modesFailed} 个`
+            `应用完成：成功 ${resultView.successCount}，跳过 ${resultView.skippedCount}，失败 ${resultView.failedCount}`
           );
         }
       } else if (message.type === 'error') {
@@ -385,6 +389,22 @@ export const App = () => {
     [enrichedRows, checkedSourceIds]
   );
 
+  const selectedMatches = useMemo(
+    () =>
+      enrichedRows
+        .filter((row) => checkedSourceIds.has(row.sourceId) && row.selectedTargetId)
+        .map((row) => ({
+          sourceId: row.sourceId,
+          targetId: row.selectedTargetId as string
+        })),
+    [enrichedRows, checkedSourceIds]
+  );
+
+  const writePreview = useMemo(
+    () => buildWritePreview(localVariables, selectedMatches, overwriteLiteral),
+    [localVariables, selectedMatches, overwriteLiteral]
+  );
+
   const onListHeightChange = useCallback((height: number, persist: boolean) => {
     const next = clampListHeight(height);
     setListHeight(next);
@@ -412,22 +432,15 @@ export const App = () => {
 
   const clearChecked = () => setCheckedSourceIds(new Set());
 
-  const collectSelectedMatches = () =>
-    enrichedRows
-      .filter((row) => checkedSourceIds.has(row.sourceId) && row.selectedTargetId)
-      .map((row) => ({
-        sourceId: row.sourceId,
-        targetId: row.selectedTargetId as string
-      }));
-
   const runApply = (dryRun: boolean) => {
     if (busy) return;
-    const matches = collectSelectedMatches();
+    const matches = selectedMatches;
     if (matches.length === 0) {
       setStatus('没有可应用的映射（请先勾选并选择候选）。');
       return;
     }
     setBusy(true);
+    if (!dryRun) setApplyResults(null);
     setStatus(null);
     setError(null);
     post({
@@ -592,11 +605,85 @@ export const App = () => {
           </ResizablePreviewList>
 
           <div className="mc-field">
+            <Typography level="caption">写入预览（应用前）</Typography>
+            <div className="mc-result-summary">
+              变量行 {writePreview.summary.rowCount} · 将写入 {writePreview.summary.modeSetCount} 个 mode · 跳过{' '}
+              {writePreview.summary.modeSkipCount} · 失败 {writePreview.summary.modeFailCount}
+            </div>
+            <div className="mc-result-list">
+              {writePreview.rows.length === 0 ? (
+                <div className="mc-result-row">
+                  <Typography level="caption" className="mc-hint">
+                    勾选变量并选择候选后，这里会显示将写入的 VARIABLE_ALIAS 计划。
+                  </Typography>
+                </div>
+              ) : (
+                writePreview.rows.map((row, index) => (
+                  <div key={`${row.sourceId}-${row.targetId}-${index}`} className="mc-result-row">
+                    <div className="mc-result-main">
+                      <span className="mc-result-path">
+                        {row.sourceName} → {row.targetName}
+                      </span>
+                      <span className="mc-result-tag" data-status={row.failCount > 0 ? 'failed' : row.setCount > 0 ? 'success' : 'skipped'}>
+                        写入 {row.setCount} / 跳过 {row.skipCount} / 失败 {row.failCount}
+                      </span>
+                    </div>
+                    {row.modes.map((mode) => (
+                      <Typography
+                        key={`${row.sourceId}-${row.targetId}-${mode.modeName}-${mode.action}`}
+                        level="caption"
+                        className={mode.action === 'fail' ? 'mc-result-error' : 'mc-hint'}
+                      >
+                        {mode.modeName}：{mode.note}
+                      </Typography>
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="mc-field">
             <label className="mc-switch">
               <Switch size="small" checked={overwriteLiteral} onCheckedChange={setOverwriteLiteral} />
               <Typography level="caption">覆盖 literal（默认关闭）</Typography>
             </label>
           </div>
+
+          {applyResults ? (
+            <div className="mc-field">
+              <Typography level="caption">应用结果（主线程回传）</Typography>
+              <div className="mc-result-summary">
+                成功 {applyResults.successCount} · 跳过 {applyResults.skippedCount} · 失败{' '}
+                {applyResults.failedCount}
+              </div>
+              <div className="mc-result-list">
+                {applyResults.rows.map((row, index) => (
+                  <div key={`${row.sourceName}-${row.targetName}-${index}`} className="mc-result-row">
+                    <div className="mc-result-main">
+                      <span className="mc-result-path">
+                        {row.sourceName} → {row.targetName}
+                      </span>
+                      <span
+                        className="mc-result-tag"
+                        data-status={row.status}
+                      >
+                        {row.statusLabel}
+                      </span>
+                    </div>
+                    <Typography level="caption" className="mc-hint">
+                      {row.detail}
+                    </Typography>
+                    {row.errorText ? (
+                      <Typography level="caption" className="mc-result-error">
+                        {row.errorText}
+                      </Typography>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </Scroll>
 

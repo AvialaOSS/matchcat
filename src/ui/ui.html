@@ -143,6 +143,68 @@
         color: var(--typography-caption-fg, #616060);
         font-size: var(--typography-caption-size, 0.75rem);
       }
+      .mc-result-summary {
+        font-size: var(--typography-caption-size, 0.75rem);
+        color: var(--text-text-theme-primary-black, #bf2300);
+      }
+      .mc-result-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 160px;
+        overflow: auto;
+        background: var(--box-box-normal-background-whiteonly, #ffffff);
+        border: 1px solid var(--border-border-normal-1, #f0efef);
+        border-radius: 6px;
+        padding: 6px;
+      }
+      .mc-result-row {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 4px 6px;
+        border-radius: 4px;
+        background: var(--box-box-normal-background, #fafafa);
+      }
+      .mc-result-main {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .mc-result-path {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+        font-size: var(--typography-caption-size, 0.75rem);
+      }
+      .mc-result-tag {
+        flex: none;
+        border-radius: 999px;
+        padding: 0 8px;
+        line-height: 18px;
+        font-size: var(--typography-caption-size, 0.75rem);
+        background: var(--box-box-theme-lightbackground, #ffe9e3);
+        color: var(--text-text-theme-primary-black, #bf2300);
+      }
+      .mc-result-tag[data-status='success'] {
+        background: #e8f5e9;
+        color: #186a3b;
+      }
+      .mc-result-tag[data-status='skipped'] {
+        background: #eceff1;
+        color: #455a64;
+      }
+      .mc-result-tag[data-status='failed'] {
+        background: #ffe9e3;
+        color: #bf2300;
+      }
+      .mc-result-error {
+        color: var(--text-text-error-primary, #bf2300);
+        font-size: var(--typography-caption-size, 0.75rem);
+      }
 
       .mc-resize {
         position: absolute;

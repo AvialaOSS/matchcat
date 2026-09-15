@@ -89,19 +89,12 @@ export const buildWritePreview = (
       continue;
     }
 
-    const targetModeByName = new Map(target.modes.map((mode) => [mode.name, mode.id]));
-    for (const sourceMode of source.modes) {
+    const sourceModes =
+      source.modes.length > 0
+        ? source.modes
+        : Object.keys(source.valuesByMode).map((id) => ({ id, name: id }));
+    for (const sourceMode of sourceModes) {
       const currentValue = source.valuesByMode[sourceMode.id];
-      if (!targetModeByName.has(sourceMode.name)) {
-        row.modes.push({
-          modeName: sourceMode.name,
-          action: 'skip',
-          note: '目标集合不存在同名 mode'
-        });
-        row.skipCount += 1;
-        modeSkipCount += 1;
-        continue;
-      }
       if (alreadyAliased(currentValue, target.id)) {
         row.modes.push({ modeName: sourceMode.name, action: 'skip', note: '已是同一别名' });
         row.skipCount += 1;
@@ -122,7 +115,7 @@ export const buildWritePreview = (
       row.modes.push({
         modeName: sourceMode.name,
         action: 'set',
-        note: `将设置为 VARIABLE_ALIAS -> ${target.name}`
+        note: `将设置为 VARIABLE_ALIAS -> ${target.name}（不要求同名 mode）`
       });
       row.setCount += 1;
       modeSetCount += 1;

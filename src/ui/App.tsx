@@ -328,7 +328,7 @@ export const App = () => {
         sources: sourcePool,
         targets: targetPool,
         confidenceThreshold,
-        maxCandidates: 20
+        maxCandidates: 5
       }),
     [sourcePool, targetPool, confidenceThreshold]
   );
@@ -585,7 +585,7 @@ export const App = () => {
                       }}
                     >
                       <SelectTrigger className="mc-grow" size="regular" aria-label={`candidate-${row.sourceId}`}>
-                        <SelectValue placeholder="选择候选 target" />
+                        <SelectValue placeholder="选择候选 target（Top 5）" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">（不应用）</SelectItem>

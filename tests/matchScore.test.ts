@@ -86,18 +86,27 @@ describe('buildMatchPreview', () => {
   });
 
   it('uses confidence threshold for auto-check defaults', () => {
-    const rows = buildMatchPreview({
+    const [strictRow] = buildMatchPreview({
       sources: [variable({ id: 's1', name: 'button/primary-background-default' })],
       targets: [variable({ id: 't1', name: 'control/theme-primary-border-default', collectionId: 'target' })],
       confidenceThreshold: 0.95
     });
-    expect(rows[0]?.autoChecked).toBe(false);
-    const relaxed = buildMatchPreview({
+    expect(strictRow?.autoChecked).toBe(false);
+
+    const [relaxedLow] = buildMatchPreview({
       sources: [variable({ id: 's1', name: 'button/primary-background-default' })],
       targets: [variable({ id: 't1', name: 'control/theme-primary-border-default', collectionId: 'target' })],
       confidenceThreshold: 0.2
     });
-    expect(relaxed[0]?.autoChecked).toBe(true);
+    expect(relaxedLow?.autoChecked).toBe(false);
+
+    const [high] = buildMatchPreview({
+      sources: [variable({ id: 's2', name: 'button/primary-background-hover' })],
+      targets: [variable({ id: 't2', name: 'control/theme-primary-background-hover', collectionId: 'target' })],
+      confidenceThreshold: 0.85
+    });
+    expect(high?.recommendedConfidence).toBe('high');
+    expect(high?.autoChecked).toBe(true);
   });
 
   it('ranks canonical button->control family #1 with noisy alternatives', () => {

@@ -48,6 +48,10 @@ describe('applyAliases', () => {
     { modeId: 't-default', name: 'default' },
     { modeId: 't-hover', name: 'hover' }
   ]);
+  const targetDifferentModes = makeCollection('target-collection-alt', 'target-alt', [
+    { modeId: 't-day', name: 'day' },
+    { modeId: 't-night', name: 'night' }
+  ]);
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -129,5 +133,40 @@ describe('applyAliases', () => {
     expect(result.summary.rowsApplied).toBe(1);
     expect(result.summary.modesApplied).toBe(2);
     expect(result.summary.modesWouldApply).toBe(0);
+  });
+
+  it('applies aliases even when source/target mode names differ', async () => {
+    const source = makeVariable({
+      id: 'source-var',
+      name: 'button/primary-background-default',
+      resolvedType: 'COLOR',
+      variableCollectionId: sourceCollection.id,
+      valuesByMode: {
+        's-default': { r: 1, g: 1, b: 1, a: 1 },
+        's-hover': { r: 0.9, g: 0.9, b: 0.9, a: 1 }
+      }
+    });
+    const target = makeVariable({
+      id: 'target-var',
+      name: 'control/theme-primary-background-default',
+      resolvedType: 'COLOR',
+      variableCollectionId: targetDifferentModes.id,
+      valuesByMode: {
+        't-day': { r: 0.1, g: 0.2, b: 0.3, a: 1 },
+        't-night': { r: 0.2, g: 0.3, b: 0.4, a: 1 }
+      }
+    });
+    mockFigma([sourceCollection, targetDifferentModes], [source, target]);
+
+    const result = await applyAliases({
+      matches: [{ sourceId: source.id, targetId: target.id }],
+      dryRun: false,
+      overwriteLiteral: true
+    });
+
+    expect(source.setValueForMode).toHaveBeenCalledTimes(2);
+    expect(result.summary.modesApplied).toBe(2);
+    expect(result.summary.modesSkipped).toBe(0);
+    expect(result.results[0]?.appliedModes).toEqual(['default', 'hover']);
   });
 });

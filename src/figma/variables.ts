@@ -127,9 +127,9 @@ const makeRowResult = (
 });
 
 /**
- * Writes VARIABLE_ALIAS values with mode-name alignment.
+ * Writes VARIABLE_ALIAS values in a mode-agnostic way.
  * - Source/target types must match
- * - Mode pairing is by mode name
+ * - Every source mode points to the chosen target variable id
  * - Existing same alias is skipped
  * - Literal overwrite is off by default (opt-in)
  */
@@ -182,30 +182,20 @@ export const applyAliases = async (input: ApplyAliasesInput): Promise<ApplyAlias
     }
 
     const sourceCollection = collectionById.get(source.variableCollectionId);
-    const targetCollection = collectionById.get(target.variableCollectionId);
-    if (!sourceCollection || !targetCollection) {
-      row.failedModes.push({ modeName: '*', error: '无法读取变量集合信息' });
-      summary.modesFailed += 1;
+    const sourceModes =
+      sourceCollection?.modes.map((mode) => ({ modeId: mode.modeId, modeName: mode.name })) ??
+      Object.keys(source.valuesByMode).map((modeId) => ({ modeId, modeName: modeId }));
+    if (sourceModes.length === 0) {
+      row.skippedModes.push({ modeName: '*', reason: 'source 没有可写入 mode' });
+      summary.modesSkipped += 1;
       continue;
     }
 
-    const targetModesByName = new Map(
-      targetCollection.modes.map((mode) => [mode.name, mode.modeId])
-    );
-    for (const sourceMode of sourceCollection.modes) {
-      if (!targetModesByName.has(sourceMode.name)) {
-        row.skippedModes.push({
-          modeName: sourceMode.name,
-          reason: '目标集合不存在同名 mode'
-        });
-        summary.modesSkipped += 1;
-        continue;
-      }
-
+    for (const sourceMode of sourceModes) {
       const currentValue = source.valuesByMode[sourceMode.modeId];
       if (isAliasValue(currentValue) && currentValue.id === target.id) {
         row.skippedModes.push({
-          modeName: sourceMode.name,
+          modeName: sourceMode.modeName,
           reason: '已是同一别名'
         });
         summary.modesSkipped += 1;
@@ -215,7 +205,7 @@ export const applyAliases = async (input: ApplyAliasesInput): Promise<ApplyAlias
       const isLiteral = currentValue !== undefined && !isAliasValue(currentValue);
       if (isLiteral && !input.overwriteLiteral) {
         row.skippedModes.push({
-          modeName: sourceMode.name,
+          modeName: sourceMode.modeName,
           reason: 'literal 值未覆盖（overwrite-literal=off）'
         });
         summary.modesSkipped += 1;
@@ -223,7 +213,7 @@ export const applyAliases = async (input: ApplyAliasesInput): Promise<ApplyAlias
       }
 
       if (input.dryRun) {
-        row.wouldApplyModes.push(sourceMode.name);
+        row.wouldApplyModes.push(sourceMode.modeName);
         summary.modesWouldApply += 1;
         continue;
       }
@@ -233,11 +223,11 @@ export const applyAliases = async (input: ApplyAliasesInput): Promise<ApplyAlias
           type: 'VARIABLE_ALIAS',
           id: target.id
         });
-        row.appliedModes.push(sourceMode.name);
+        row.appliedModes.push(sourceMode.modeName);
         summary.modesApplied += 1;
       } catch (error) {
         row.failedModes.push({
-          modeName: sourceMode.name,
+          modeName: sourceMode.modeName,
           error: error instanceof Error ? error.message : String(error)
         });
         summary.modesFailed += 1;

@@ -331,7 +331,7 @@ const applyFamilyConsistency = (rows: MatchPreviewRow[]): MatchPreviewRow[] => {
 
 export const buildMatchPreview = (input: BuildMatchPreviewInput): MatchPreviewRow[] => {
   const threshold = clamp01(input.confidenceThreshold);
-  const maxCandidates = Math.max(1, Math.min(20, input.maxCandidates ?? 8));
+  const maxCandidates = Math.max(1, Math.min(20, input.maxCandidates ?? 5));
   const targetParsedById = new Map(input.targets.map((variable) => [variable.id, parseName(variable.name)]));
 
   const rows = input.sources.map((source) => {
@@ -354,14 +354,18 @@ export const buildMatchPreview = (input: BuildMatchPreviewInput): MatchPreviewRo
       recommendedTargetId: best?.targetId ?? null,
       recommendedScore: bestScore,
       recommendedConfidence: bestConfidence,
-      autoChecked: Boolean(best && bestScore >= threshold),
+      autoChecked: Boolean(best && bestScore >= threshold && bestConfidence === 'high'),
       candidates
     } as MatchPreviewRow;
   });
 
   applyFamilyConsistency(rows);
   for (const row of rows) {
-    row.autoChecked = Boolean(row.recommendedTargetId && row.recommendedScore >= threshold);
+    row.autoChecked = Boolean(
+      row.recommendedTargetId &&
+        row.recommendedScore >= threshold &&
+        row.recommendedConfidence === 'high'
+    );
   }
   return rows;
 };

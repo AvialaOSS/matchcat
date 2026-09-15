@@ -76,7 +76,7 @@ describe('buildWritePreview', () => {
       id: 't',
       name: 'control/theme-primary-background-default',
       collectionId: 'tgt',
-      modes: [{ id: 't-default', name: 'default' }]
+      modes: [{ id: 't-day', name: 'day' }]
     });
 
     const preview = buildWritePreview(
@@ -88,6 +88,41 @@ describe('buildWritePreview', () => {
     expect(preview.summary.modeSetCount).toBe(0);
     expect(preview.summary.modeSkipCount).toBe(2);
     expect(notes).toContain('已是同一别名');
-    expect(notes).toContain('目标集合不存在同名 mode');
+    expect(notes).toContain('literal 值未覆盖');
+  });
+
+  it('does not require same mode names for write plan', () => {
+    const source = variable({
+      id: 's',
+      name: 'button/primary-background-default',
+      collectionId: 'src',
+      modes: [
+        { id: 's-default', name: 'default' },
+        { id: 's-hover', name: 'hover' }
+      ],
+      valuesByMode: {
+        's-default': { kind: 'EMPTY' },
+        's-hover': { kind: 'EMPTY' }
+      }
+    });
+    const target = variable({
+      id: 't',
+      name: 'control/theme-primary-background-default',
+      collectionId: 'tgt',
+      modes: [
+        { id: 't-day', name: 'day' },
+        { id: 't-night', name: 'night' }
+      ]
+    });
+
+    const preview = buildWritePreview(
+      [source, target],
+      [{ sourceId: source.id, targetId: target.id }],
+      false
+    );
+
+    expect(preview.summary.modeSetCount).toBe(2);
+    expect(preview.summary.modeSkipCount).toBe(0);
+    expect(preview.rows[0]?.modes[0]?.note).toContain('不要求同名 mode');
   });
 });

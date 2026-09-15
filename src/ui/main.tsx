@@ -1,6 +1,6 @@
 import './figma-storage-shim';
 import { createRoot } from 'react-dom/client';
-import { ConfigProvider, ThemeProvider, zhCN } from '@aviala-design/spiral';
+import { ConfigProvider, ThemeProvider, TooltipProvider, zhCN } from '@aviala-design/spiral';
 import '@aviala-design/spiral/styles.css';
 import { App } from './App';
 
@@ -12,7 +12,9 @@ if (!root) {
 createRoot(root).render(
   <ThemeProvider defaultMode="light">
     <ConfigProvider locale={zhCN} className="nc-root">
-      <App />
+      <TooltipProvider delayDuration={200}>
+        <App />
+      </TooltipProvider>
     </ConfigProvider>
   </ThemeProvider>
 );

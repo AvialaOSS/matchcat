@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildMatchPreview, longestCommonTokenSuffix } from '../src/matcher/matchScore';
+import {
+  buildMatchPreview,
+  buildMatchPreviewGrouped,
+  longestCommonTokenSuffix
+} from '../src/matcher/matchScore';
 import type { VariableInfo, VariableResolvedType } from '../src/protocol/messages';
 
 const variable = (input: {
@@ -9,6 +13,9 @@ const variable = (input: {
   collectionId?: string;
   collectionName?: string;
   boundToSelection?: boolean;
+  resolvedValues?: Record<string, string>;
+  colorHex?: string | null;
+  modes?: Array<{ id: string; name: string }>;
 }): VariableInfo => ({
   id: input.id,
   name: input.name,
@@ -17,8 +24,10 @@ const variable = (input: {
   collectionName: input.collectionName ?? input.collectionId ?? 'source',
   isRemote: false,
   boundToSelection: input.boundToSelection ?? false,
-  modes: [],
-  valuesByMode: {}
+  modes: input.modes ?? [],
+  valuesByMode: {},
+  resolvedValues: input.resolvedValues ?? {},
+  colorHex: input.colorHex ?? null
 });
 
 describe('longestCommonTokenSuffix', () => {
@@ -149,5 +158,67 @@ describe('buildMatchPreview', () => {
     expect(row?.recommendedTargetId).toBe('good');
     const bad = row?.candidates.find((candidate) => candidate.targetId === 'bad');
     expect((bad?.score ?? 0) < 0.4).toBe(true);
+  });
+
+  it('boosts ranking when COLOR hex values match despite weak names', () => {
+    const rows = buildMatchPreview({
+      sources: [
+        variable({
+          id: 's1',
+          name: 'componentToken/weird-alias-default',
+          resolvedValues: { m1: '#BF2300' },
+          colorHex: '#BF2300',
+          modes: [{ id: 'm1', name: 'default' }]
+        })
+      ],
+      targets: [
+        variable({
+          id: 'weak-name',
+          name: 'totally/unrelated-token-default',
+          collectionId: 'target',
+          resolvedValues: { t1: '#FFFFFF' },
+          colorHex: '#FFFFFF',
+          modes: [{ id: 't1', name: 'default' }]
+        }),
+        variable({
+          id: 'value-hit',
+          name: 'another/unrelated-leaf-default',
+          collectionId: 'target',
+          resolvedValues: { t1: '#BF2300' },
+          colorHex: '#BF2300',
+          modes: [{ id: 't1', name: 'default' }]
+        })
+      ],
+      confidenceThreshold: 0.6,
+      maxCandidates: 5
+    });
+    expect(rows[0]?.recommendedTargetId).toBe('value-hit');
+    const hit = rows[0]?.candidates.find((candidate) => candidate.targetId === 'value-hit');
+    expect(hit?.reasons).toContain('value-match');
+  });
+});
+
+describe('buildMatchPreviewGrouped', () => {
+  it('groups default/hover/active siblings and leaves singletons ungrouped', () => {
+    const grouped = buildMatchPreviewGrouped({
+      sources: [
+        variable({ id: 's-d', name: 'button/primary-background-default' }),
+        variable({ id: 's-h', name: 'button/primary-background-hover' }),
+        variable({ id: 'solo', name: 'input/border-default' })
+      ],
+      targets: [
+        variable({ id: 't-d', name: 'control/theme-primary-background-default', collectionId: 'target' }),
+        variable({ id: 't-h', name: 'control/theme-primary-background-hover', collectionId: 'target' }),
+        variable({ id: 't-border', name: 'control/theme-border-default', collectionId: 'target' })
+      ],
+      confidenceThreshold: 0.6
+    });
+    expect(grouped.families).toHaveLength(1);
+    expect(grouped.families[0]?.rows).toHaveLength(2);
+    expect(grouped.families[0]?.sourceStates).toContain('default');
+    expect(grouped.families[0]?.sourceStates).toContain('hover');
+    expect(grouped.ungrouped).toHaveLength(1);
+    expect(grouped.ungrouped[0]?.sourceId).toBe('solo');
+    expect(grouped.totalSources).toBe(3);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildWritePreview } from '../src/ui/write-preview';
+import { buildBindingReview, buildWritePreview } from '../src/ui/write-preview';
 import type { VariableInfo, VariableResolvedType } from '../src/protocol/messages';
 
 const variable = (input: {
@@ -9,6 +9,8 @@ const variable = (input: {
   resolvedType?: VariableResolvedType;
   modes: Array<{ id: string; name: string }>;
   valuesByMode?: Record<string, { kind: 'ALIAS' | 'LITERAL' | 'EMPTY'; aliasId?: string }>;
+  colorHex?: string | null;
+  resolvedValues?: Record<string, string>;
 }): VariableInfo => ({
   id: input.id,
   name: input.name,
@@ -18,7 +20,9 @@ const variable = (input: {
   isRemote: false,
   boundToSelection: false,
   modes: input.modes,
-  valuesByMode: input.valuesByMode ?? {}
+  valuesByMode: input.valuesByMode ?? {},
+  resolvedValues: input.resolvedValues ?? {},
+  colorHex: input.colorHex ?? null
 });
 
 describe('buildWritePreview', () => {
@@ -124,5 +128,54 @@ describe('buildWritePreview', () => {
     expect(preview.summary.modeSetCount).toBe(2);
     expect(preview.summary.modeSkipCount).toBe(0);
     expect(preview.rows[0]?.modes[0]?.note).toContain('不要求同名 mode');
+  });
+
+  it('propagates colorHex on write preview rows', () => {
+    const source = variable({
+      id: 's',
+      name: 'button/primary-background-default',
+      collectionId: 'src',
+      colorHex: '#112233',
+      modes: [{ id: 's-default', name: 'default' }],
+      valuesByMode: { 's-default': { kind: 'EMPTY' } }
+    });
+    const target = variable({
+      id: 't',
+      name: 'control/theme-primary-background-default',
+      collectionId: 'tgt',
+      colorHex: '#445566',
+      modes: [{ id: 't-default', name: 'default' }]
+    });
+    const preview = buildWritePreview([source, target], [{ sourceId: 's', targetId: 't' }], false);
+    expect(preview.rows[0]?.sourceColorHex).toBe('#112233');
+    expect(preview.rows[0]?.targetColorHex).toBe('#445566');
+  });
+});
+
+describe('buildBindingReview', () => {
+  it('merges match metadata with write preview mode plans', () => {
+    const source = variable({
+      id: 's',
+      name: 'button/primary-background-default',
+      collectionId: 'src',
+      modes: [{ id: 's-default', name: 'default' }],
+      valuesByMode: { 's-default': { kind: 'EMPTY' } }
+    });
+    const target = variable({
+      id: 't',
+      name: 'control/theme-primary-background-default',
+      collectionId: 'tgt',
+      modes: [{ id: 't-default', name: 'default' }]
+    });
+    const rows = buildBindingReview(
+      [source, target],
+      [{ sourceId: 's', targetId: 't', score: 0.91, confidence: 'high' }],
+      false
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.score).toBe(0.91);
+    expect(rows[0]?.confidence).toBe('high');
+    expect(rows[0]?.setCount).toBe(1);
+    expect(rows[0]?.modes[0]?.action).toBe('set');
   });
 });

@@ -17,10 +17,72 @@ const isAliasValue = (value: unknown): value is VariableAlias =>
       typeof (value as { id?: unknown }).id === 'string'
   );
 
+const isRgba = (value: unknown): value is RGBA =>
+  Boolean(
+    value &&
+      typeof value === 'object' &&
+      'r' in value &&
+      'g' in value &&
+      'b' in value &&
+      typeof (value as RGBA).r === 'number'
+  );
+
+const byteToHex = (value: number): string => {
+  const clamped = Math.max(0, Math.min(255, Math.round(value)));
+  return clamped.toString(16).padStart(2, '0');
+};
+
+export const rgbaToDisplayHex = (rgba: RGBA): string => {
+  const r = byteToHex(rgba.r * 255);
+  const g = byteToHex(rgba.g * 255);
+  const b = byteToHex(rgba.b * 255);
+  const a = rgba.a !== undefined && rgba.a < 1 ? byteToHex(rgba.a * 255) : '';
+  return a ? `#${r}${g}${b}${a}`.toUpperCase() : `#${r}${g}${b}`.toUpperCase();
+};
+
+export const formatModeValueDisplay = (
+  value: unknown,
+  resolvedType: VariableResolvedType
+): string | null => {
+  if (value === undefined) return null;
+  if (isAliasValue(value)) return null;
+  switch (resolvedType) {
+    case 'COLOR':
+      return isRgba(value) ? rgbaToDisplayHex(value) : null;
+    case 'FLOAT':
+      return typeof value === 'number' && Number.isFinite(value) ? String(value) : null;
+    case 'STRING':
+      return typeof value === 'string' ? value : null;
+    case 'BOOLEAN':
+      return typeof value === 'boolean' ? (value ? 'true' : 'false') : null;
+    default:
+      return null;
+  }
+};
+
 const modeValueInfo = (value: unknown): ModeValueInfo => {
   if (value === undefined) return { kind: 'EMPTY' };
   if (isAliasValue(value)) return { kind: 'ALIAS', aliasId: value.id };
   return { kind: 'LITERAL' };
+};
+
+const buildResolvedSnapshot = (
+  variable: Variable,
+  collection: VariableCollection
+): { resolvedValues: Record<string, string>; colorHex: string | null } => {
+  const resolvedValues: Record<string, string> = {};
+  let colorHex: string | null = null;
+  for (const mode of collection.modes) {
+    const raw = variable.valuesByMode[mode.modeId];
+    const display = formatModeValueDisplay(raw, variable.resolvedType as VariableResolvedType);
+    if (display !== null) {
+      resolvedValues[mode.modeId] = display;
+      if (colorHex === null && variable.resolvedType === 'COLOR') {
+        colorHex = display;
+      }
+    }
+  }
+  return { resolvedValues, colorHex };
 };
 
 const toInfo = (
@@ -32,6 +94,7 @@ const toInfo = (
   for (const mode of collection.modes) {
     valuesByMode[mode.modeId] = modeValueInfo(variable.valuesByMode[mode.modeId]);
   }
+  const { resolvedValues, colorHex } = buildResolvedSnapshot(variable, collection);
   return {
     id: variable.id,
     name: variable.name,
@@ -41,7 +104,9 @@ const toInfo = (
     isRemote: variable.remote,
     boundToSelection: boundIds.has(variable.id),
     modes: collection.modes.map((mode) => ({ id: mode.modeId, name: mode.name })),
-    valuesByMode
+    valuesByMode,
+    resolvedValues,
+    colorHex
   };
 };
 
@@ -87,7 +152,9 @@ export const snapshotLocalVariables = async (
           isRemote: variable.remote,
           boundToSelection: boundIds.has(variable.id),
           modes: [],
-          valuesByMode: {}
+          valuesByMode: {},
+          resolvedValues: {},
+          colorHex: null
         } satisfies VariableInfo;
       }
       return toInfo(variable, collection, boundIds);

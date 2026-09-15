@@ -1,29 +1,21 @@
-import type { VariableInfo } from '../protocol/messages';
+import type {
+  MatchCandidate,
+  MatchConfidence,
+  MatchFamily,
+  MatchPreviewResult,
+  MatchPreviewRow,
+  MatchState,
+  VariableInfo
+} from '../protocol/messages';
 
-export type MatchConfidence = 'high' | 'medium' | 'low' | 'none';
-export type MatchState = 'default' | 'hover' | 'active' | 'focus' | 'disabled' | null;
-
-export type MatchCandidate = {
-  targetId: string;
-  targetName: string;
-  score: number;
-  confidence: MatchConfidence;
-  targetState: MatchState;
-  targetFamilyKey: string;
-  reasons: string[];
-};
-
-export type MatchPreviewRow = {
-  sourceId: string;
-  sourceName: string;
-  sourceState: MatchState;
-  sourceFamilyKey: string;
-  recommendedTargetId: string | null;
-  recommendedScore: number;
-  recommendedConfidence: MatchConfidence;
-  autoChecked: boolean;
-  candidates: MatchCandidate[];
-};
+export type {
+  MatchCandidate,
+  MatchConfidence,
+  MatchFamily,
+  MatchPreviewResult,
+  MatchPreviewRow,
+  MatchState
+} from '../protocol/messages';
 
 export type BuildMatchPreviewInput = {
   sources: readonly VariableInfo[];
@@ -190,6 +182,36 @@ const confidenceFromScore = (score: number): MatchConfidence => {
   return 'low';
 };
 
+const VALUE_MATCH_BONUS = 0.15;
+
+const normalizeHex = (hex: string): string => hex.trim().toUpperCase();
+
+const hasColorValueMatch = (source: VariableInfo, target: VariableInfo): boolean => {
+  if (source.resolvedType !== 'COLOR' || target.resolvedType !== 'COLOR') return false;
+
+  const targetModeByName = new Map(
+    target.modes.map((mode) => [mode.name.trim().toLowerCase(), mode.id])
+  );
+  for (const sourceMode of source.modes) {
+    const targetModeId = targetModeByName.get(sourceMode.name.trim().toLowerCase());
+    if (!targetModeId) continue;
+    const sourceHex = source.resolvedValues[sourceMode.id];
+    const targetHex = target.resolvedValues[targetModeId];
+    if (sourceHex && targetHex && normalizeHex(sourceHex) === normalizeHex(targetHex)) {
+      return true;
+    }
+  }
+
+  const sourceHexes = new Set(
+    Object.values(source.resolvedValues).map(normalizeHex).filter((hex) => hex.length > 0)
+  );
+  if (sourceHexes.size === 0) return false;
+  for (const targetHex of Object.values(target.resolvedValues)) {
+    if (sourceHexes.has(normalizeHex(targetHex))) return true;
+  }
+  return false;
+};
+
 const buildCandidate = (
   source: VariableInfo,
   target: VariableInfo,
@@ -236,13 +258,18 @@ const buildCandidate = (
   } else if (stateScore === 0) {
     score *= 0.55;
   }
-  score = clamp01(score);
+  const valueMatched = hasColorValueMatch(source, target);
+  if (valueMatched) {
+    score += VALUE_MATCH_BONUS;
+    score = clamp01(score);
+  }
 
   const reasons: string[] = [];
   if (leafSuffix > 0) reasons.push(`leaf-suffix:${leafSuffix}`);
   if (fullSuffix > 0) reasons.push(`path-suffix:${fullSuffix}`);
   if (stateScore === 1) reasons.push('state-aligned');
   if (roleScore >= 0.5) reasons.push('role-overlap');
+  if (valueMatched) reasons.push('value-match');
   if (reasons.length === 0) reasons.push('weak-similarity');
 
   return {
@@ -368,4 +395,63 @@ export const buildMatchPreview = (input: BuildMatchPreviewInput): MatchPreviewRo
     );
   }
   return rows;
+};
+
+const familyTargetKey = (row: MatchPreviewRow): string | null => {
+  if (!row.recommendedTargetId) return null;
+  const chosen = row.candidates.find((candidate) => candidate.targetId === row.recommendedTargetId);
+  return chosen?.targetFamilyKey ?? null;
+};
+
+const isFamilyGroupable = (rows: MatchPreviewRow[]): boolean =>
+  rows.length >= 2 && rows.some((row) => row.sourceState !== null);
+
+export const buildMatchPreviewGrouped = (input: BuildMatchPreviewInput): MatchPreviewResult => {
+  const flat = buildMatchPreview(input);
+  const byFamily = new Map<string, MatchPreviewRow[]>();
+  for (const row of flat) {
+    if (!row.sourceFamilyKey) {
+      byFamily.set(`__solo:${row.sourceId}`, [row]);
+      continue;
+    }
+    const bucket = byFamily.get(row.sourceFamilyKey) ?? [];
+    bucket.push(row);
+    byFamily.set(row.sourceFamilyKey, bucket);
+  }
+
+  const families: MatchFamily[] = [];
+  const ungrouped: MatchPreviewRow[] = [];
+
+  for (const [familyKey, rows] of byFamily.entries()) {
+    if (familyKey.startsWith('__solo:') || !isFamilyGroupable(rows)) {
+      ungrouped.push(...rows);
+      continue;
+    }
+    const sorted = [...rows].sort((left, right) =>
+      left.sourceName.localeCompare(right.sourceName)
+    );
+    const targetKeys = sorted.map(familyTargetKey);
+    const consistent =
+      targetKeys.length > 0 &&
+      targetKeys.every((key) => key !== null && key === targetKeys[0]);
+    const sourceStates = [...new Set(sorted.map((row) => row.sourceState))];
+    families.push({
+      familyKey,
+      sourceStates,
+      rows: sorted,
+      consistent
+    });
+  }
+
+  families.sort((left, right) => left.familyKey.localeCompare(right.familyKey));
+  ungrouped.sort((left, right) => left.sourceName.localeCompare(right.sourceName));
+
+  const totalMatched = flat.filter((row) => row.recommendedTargetId !== null).length;
+
+  return {
+    families,
+    ungrouped,
+    totalSources: flat.length,
+    totalMatched
+  };
 };

@@ -1,21 +1,25 @@
-import type { ModeValueInfo, VariableInfo } from '../protocol/messages';
+import type {
+  BindingReviewRow,
+  MatchConfidence,
+  ModeValueInfo,
+  VariableInfo,
+  WritePreviewModePlan
+} from '../protocol/messages';
 
 export type WritePreviewSelection = {
   sourceId: string;
   targetId: string;
 };
 
-export type WritePreviewModePlan = {
-  modeName: string;
-  action: 'set' | 'skip' | 'fail';
-  note: string;
-};
+export type { WritePreviewModePlan } from '../protocol/messages';
 
 export type WritePreviewRow = {
   sourceId: string;
   sourceName: string;
+  sourceColorHex: string | null;
   targetId: string;
   targetName: string;
+  targetColorHex: string | null;
   setCount: number;
   skipCount: number;
   failCount: number;
@@ -30,6 +34,13 @@ export type WritePreviewResult = {
     modeSkipCount: number;
     modeFailCount: number;
   };
+};
+
+export type BindingReviewSelection = {
+  sourceId: string;
+  targetId: string;
+  score: number;
+  confidence: MatchConfidence;
 };
 
 const literalBlocked = (value: ModeValueInfo | undefined, overwriteLiteral: boolean): boolean =>
@@ -55,8 +66,10 @@ export const buildWritePreview = (
     const row: WritePreviewRow = {
       sourceId: selection.sourceId,
       sourceName: source?.name ?? selection.sourceId,
+      sourceColorHex: source?.colorHex ?? null,
       targetId: selection.targetId,
       targetName: target?.name ?? selection.targetId,
+      targetColorHex: target?.colorHex ?? null,
       setCount: 0,
       skipCount: 0,
       failCount: 0,
@@ -131,4 +144,35 @@ export const buildWritePreview = (
       modeFailCount
     }
   };
+};
+
+export const buildBindingReview = (
+  variables: readonly VariableInfo[],
+  selections: readonly BindingReviewSelection[],
+  overwriteLiteral: boolean
+): BindingReviewRow[] => {
+  const preview = buildWritePreview(
+    variables,
+    selections.map((row) => ({ sourceId: row.sourceId, targetId: row.targetId })),
+    overwriteLiteral
+  );
+  const metaBySource = new Map(selections.map((row) => [row.sourceId, row]));
+
+  return preview.rows.map((row) => {
+    const meta = metaBySource.get(row.sourceId);
+    return {
+      sourceId: row.sourceId,
+      sourceName: row.sourceName,
+      sourceColorHex: row.sourceColorHex,
+      targetId: row.targetId,
+      targetName: row.targetName,
+      targetColorHex: row.targetColorHex,
+      score: meta?.score ?? 0,
+      confidence: meta?.confidence ?? 'none',
+      modes: row.modes,
+      setCount: row.setCount,
+      skipCount: row.skipCount,
+      failCount: row.failCount
+    };
+  });
 };
